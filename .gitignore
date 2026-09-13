@@ -7,6 +7,9 @@
 *.pem
 *.key
 
+# ═══ 本地 AI 协作约定 ═══
+AGENTS.md
+
 # ═══ 构建产物 ═══
 bin/
 *.exe
