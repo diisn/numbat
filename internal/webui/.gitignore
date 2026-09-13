@@ -1,0 +1,4 @@
+# 前端构建产物由 webui/ 下的 Vite 工程生成（npm run build），不入库。
+# .gitkeep 保证 go:embed all:dist 在未构建时仍能编译。
+dist/*
+!dist/.gitkeep

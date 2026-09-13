@@ -1,0 +1,40 @@
+# ═══ 环境与密钥（绝不提交）═══
+# 本地配置/会话数据（.numbat/ 内含真实 API key 的 .env）
+.numbat/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ═══ 构建产物 ═══
+bin/
+*.exe
+# 前端构建产物（保留 .gitkeep 使 go:embed 目录存在）
+internal/webui/dist/*
+!internal/webui/dist/.gitkeep
+webui/dist/
+
+# ═══ 依赖 ═══
+webui/node_modules/
+.npm-cache/
+
+# ═══ 日志 ═══
+*.log
+logs/
+*-save/
+
+# ═══ 测试/沙箱数据 ═══
+.devhome/
+*.jsonl
+
+# ═══ IDE ═══
+.vscode/
+.idea/
+.trae/
+*.sw?
+.DS_Store
+
+# ═══ OS ═══
+Thumbs.db
+Desktop.ini

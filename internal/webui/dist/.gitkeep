@@ -1,0 +1,5 @@
+本目录为 go:embed 目标（internal/webui/embed.go）。构建前端后运行：
+
+    cd webui && npm run build
+
+产物会输出到本目录；未构建时此占位文件保证目录存在，go build 不报错。
