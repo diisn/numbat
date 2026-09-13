@@ -17,7 +17,7 @@
 | IM 接入 | `internal/channel` 可选通道（Telegram/飞书）+ 按发送者路由到 Agent |
 | 事件驱动 | 内存事件总线 + 订阅广播（TCP 与 WebSocket 共用） |
 | LLM 接入 | 自研 Anthropic Messages API 兼容 client（SSE 流式） |
-| 依赖 | bubbletea/bubbles/lipgloss/glamour、chi、gorilla/websocket、BurntSushi/toml、chroma、slog |
+| 依赖 | bubbletea/bubbles/lipgloss/glamour、gin-gonic/gin、gorilla/websocket、BurntSushi/toml、chroma、slog |
 | WebUI | React + TypeScript + Vite，生产产物经 go:embed 内嵌，挂在网关 `/app/*` |
 
 ---
@@ -101,7 +101,7 @@ IM 消息 → Channel 适配器 `Receive()` → `channel.Manager` 按发送者�
 app ──> config, events, llm, tools(+builtin), permissions, session, subagent,
         mcp, trace, transport, agents, channel
 transport ──> bus, events, llm, loop, context, memory, permissions, session,
-              skills, subagent, task, tools(+builtin), compact, agents, chi, websocket
+              skills, subagent, task, tools(+builtin), compact, agents, gin, websocket
 channel ──> （仅标准库 + slog；Agent 执行经注入回调承接，不依赖 loop/llm/transport）
 loop ──> llm, tools, events, compact, context
 llm ──> （仅标准库，不依赖 events；流式回调由调用方注入）

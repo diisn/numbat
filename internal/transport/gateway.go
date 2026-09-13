@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -11,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
 
@@ -25,7 +26,7 @@ type webUI struct {
 type Gateway struct {
 	addr      string
 	server    *http.Server
-	router    chi.Router
+	router    *gin.Engine
 	started   time.Time
 	mu        sync.RWMutex
 	rpc       *Server
@@ -147,21 +148,23 @@ func (g *Gateway) handleWebUI(w http.ResponseWriter, r *http.Request) {
 	ui.handler.ServeHTTP(w, r2)
 }
 
-func (g *Gateway) routes() chi.Router {
-	r := chi.NewRouter()
-	r.Get("/health", g.handleHealth)
-	r.Get("/metrics", g.handleMetrics)
-	r.Get("/ws", g.handleWebSocket)
-	r.Handle("/app", http.HandlerFunc(g.handleWebUI))
-	r.Handle("/app/*", http.HandlerFunc(g.handleWebUI))
+func (g *Gateway) routes() *gin.Engine {
+	r := gin.New()
+	// 自定义空日志中间件：网关日志走 slog，避免 gin 默认终端彩色日志
+	r.Use(gin.LoggerWithWriter(io.Discard), gin.Recovery())
+	r.GET("/health", g.handleHealth)
+	r.GET("/metrics", g.handleMetrics)
+	r.GET("/ws", g.handleWebSocket)
+	r.Any("/app", gin.WrapH(http.HandlerFunc(g.handleWebUI)))
+	r.Any("/app/*path", gin.WrapH(http.HandlerFunc(g.handleWebUI)))
 	return r
 }
 
-func (g *Gateway) handleHealth(w http.ResponseWriter, r *http.Request) {
-	g.json(w, http.StatusOK, map[string]string{"status": "ok"})
+func (g *Gateway) handleHealth(c *gin.Context) {
+	g.json(c.Writer, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (g *Gateway) handleMetrics(w http.ResponseWriter, r *http.Request) {
+func (g *Gateway) handleMetrics(c *gin.Context) {
 	g.mu.RLock()
 	uptime := time.Since(g.started)
 	rpc := g.rpc
@@ -175,10 +178,10 @@ func (g *Gateway) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		metrics["subscribers"] = len(rpc.subscribers)
 		rpc.mu.Unlock()
 	}
-	g.json(w, http.StatusOK, metrics)
+	g.json(c.Writer, http.StatusOK, metrics)
 }
 
-func (g *Gateway) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+func (g *Gateway) handleWebSocket(c *gin.Context) {
 	g.mu.RLock()
 	rpc := g.rpc
 	upgrader := g.upgrader
@@ -186,10 +189,10 @@ func (g *Gateway) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	rateBurst := g.rateBurst
 	g.mu.RUnlock()
 	if rpc == nil {
-		http.Error(w, "rpc server not configured", http.StatusServiceUnavailable)
+		c.String(http.StatusServiceUnavailable, "rpc server not configured")
 		return
 	}
-	ws, err := upgrader.Upgrade(w, r, nil)
+	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		slog.Error("websocket upgrade failed", "error", err)
 		return
@@ -201,7 +204,7 @@ func (g *Gateway) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		limiter = newRateLimiter(rateLimit, rateBurst)
 	}
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
 	handleWSConn(ctx, rpc, ws, limiter)
 }

@@ -53,7 +53,7 @@
 
 **应该怎么做**
 
-- 使用一个高性能的 HTTP Router（如 chi）。
+- 使用一个高性能的 HTTP Router（如 gin）。
 - 注册基础路由：
   - `GET /health`：健康检查。
   - `GET /metrics`：Prometheus 指标。

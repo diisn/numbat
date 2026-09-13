@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/youngyangyang04/numbat/internal/agents"
 	"github.com/youngyangyang04/numbat/internal/channel"
 	"github.com/youngyangyang04/numbat/internal/compact"
@@ -166,6 +168,8 @@ func (a *App) Run(ctx context.Context) error {
 
 	a.server = server
 
+	// 网关使用 gin：生产模式省去 debug 日志与推导告警
+	gin.SetMode(gin.ReleaseMode)
 	gateway := transport.NewGateway(fmt.Sprintf("%s:%d", a.config.Host, a.config.GatewayPort))
 	gateway.SetRPCServer(server)
 

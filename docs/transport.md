@@ -23,11 +23,12 @@
 
 ## HTTP 网关（gateway.go）
 
-- 基于 `net/http` + `chi`，默认端口 7438（`config.GatewayPort`）。
+- 基于 `gin`（HTTP 路由）+ `gorilla/websocket`（WS 升级），默认端口 7438（`config.GatewayPort`）。
 - 路由：
   - `GET /health` → `{"status":"ok"}`
   - `GET /metrics` → uptime / goroutines / 订阅数
   - `GET /ws` → WebSocket 升级入口（未配置 RPC server 时返回 503）
+  - `/app`、`/app/*` → WebUI 静态托管（`gin.WrapH` 包装标准 handler，SPA 回退到 index.html）
 - `http.Server.WriteTimeout` 置零，避免影响 `/ws` 长连接。
 - `SetRPCServer`：把 JSON-RPC dispatch 挂到网关。
 - `SetAllowedOrigins`：`Upgrader.CheckOrigin` 白名单，空列表 = 本地默认放行。
