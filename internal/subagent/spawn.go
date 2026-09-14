@@ -166,7 +166,7 @@ func (t *SpawnAgentTool) Invoke(ctx context.Context, params map[string]any) (too
 	}
 
 	// 角色 Profile：指定 subagent_type 时加载角色配置（system prompt + 工具白名单）；
-	// 未指定或未找到（与 Python 版一致，静默降级）时按默认子 Agent 运行。
+	// 未指定或未找到时静默降级，按默认子 Agent 运行。
 	var profile *agents.Profile
 	if subagentType != "" && t.profileLoader != nil {
 		profile = t.profileLoader.Load(subagentType)
@@ -184,7 +184,7 @@ func (t *SpawnAgentTool) Invoke(ctx context.Context, params map[string]any) (too
 	childCtx := execctx.NewExecutionContext(childRunID, prompt, t.maxSteps)
 	childCtx.AddUserMessage(prompt)
 
-	// 角色 Profile 指定时覆盖基础 system prompt（与 Python 版 system_prompt_override 一致）。
+	// 角色 Profile 指定时覆盖基础 system prompt。
 	// 子 Agent 不注入记忆层——冷启动上下文只含 prompt 与角色设定。
 	if profile != nil {
 		childCtx.SystemPromptOverride = profile.SystemPrompt
@@ -271,7 +271,7 @@ func (t *SpawnAgentTool) runChild(ctx context.Context, childLoop *loop.AgentLoop
 }
 
 // buildChildRegistry 构造子 Agent 可用的工具注册表。
-// 有角色 Profile 时按 allowed_tools 白名单过滤工具（与 Python 版一致：空白名单 = 全部放行）。
+// 有角色 Profile 时按 allowed_tools 白名单过滤工具（空白名单 = 全部放行）。
 // 深度允许时注册嵌套 spawn_agent / agent_result。
 func (t *SpawnAgentTool) buildChildRegistry(childRunID string, profile *agents.Profile) *tools.Registry {
 	allowed := make(map[string]bool)
@@ -298,7 +298,7 @@ func (t *SpawnAgentTool) buildChildRegistry(childRunID string, profile *agents.P
 		registry.Register(builtin.BashTool{})
 	}
 
-	// 任务工具：子 Agent 独立 <runsDir>/<childRunID>/.tasks 目录（与 Python 版 per-run 隔离一致）
+	// 任务工具：子 Agent 独立 <runsDir>/<childRunID>/.tasks 目录（per-run 隔离）
 	if t.runsDir != "" {
 		if taskManager, err := task.NewManager(filepath.Join(t.runsDir, childRunID, ".tasks")); err == nil {
 			if ok("task_create") {

@@ -77,6 +77,6 @@ default_agent = "executor"
 "telegram-main" = "executor"
 ```
 
-`app.go` 中 `newChannelManager`：仅配置了 `enabled=true` 的通道才组装适配器并启动；缺省空配置返回 nil，不影响既有 TCP/WS 行为。Agent 名称经 `agents.Loader` 解析为完整配置注入 Router。
+`app.go` 中 `newChannelManager`：仅配置了 `enabled=true` 的通道才组装适配器并启动；缺省空配置返回 nil，不影响既有行为。Agent 名称经 `agents.Loader` 解析为完整配置注入 Router。
 
 > 当前 `MessageHandler` 为占位实现（TODO：接入 `agent.run` / `session.send_message` 执行链，按 `AgentConfig` 覆盖 model/system_prompt/工具白名单）。

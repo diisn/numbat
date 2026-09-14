@@ -32,5 +32,5 @@
 ## 落库时机（transport/handler.go）
 
 `session.send_message` 无论 run 成功、失败还是被中止，都会落整段新增消息
-（`execCtx.Messages[prefillLen:]`，含 assistant 的 `tool_use` 与 user 的 `tool_result`），
-与 Python 版 `append_messages(messages[prefill_len:])` 一致；中途压缩时退回只落最终答复。
+（`execCtx.Messages[prefillLen:]`，含 assistant 的 `tool_use` 与 user 的 `tool_result`）；
+中途压缩时退回只落最终答复。

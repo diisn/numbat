@@ -26,8 +26,7 @@ type AgentLoop struct {
 type Option func(*AgentLoop)
 
 // WithCompaction 启用 run 中途的上下文压缩：单次 LLM 调用的 context_pct 达到
-// threshold 时，把历史替换为一份交接摘要。threshold <= 0 表示禁用（默认，
-// 与 Python 版 compaction.auto_threshold 的默认 0.0 一致）。
+// threshold 时，把历史替换为一份交接摘要。threshold <= 0 表示禁用（默认）。
 func WithCompaction(compactor *compact.Compactor, threshold float64) Option {
 	return func(l *AgentLoop) {
 		l.compactor = compactor
@@ -50,7 +49,7 @@ func New(provider llm.Provider, invoker *tools.Invoker, bus *events.Bus, opts ..
 
 // Run 执行 ReAct 循环。
 //
-// 收尾语义与 Python 版一致：正常终止（end_turn / 超过最大轮数 / LLM 调用失败）都只写入
+// 收尾语义：正常终止（end_turn / 超过最大轮数 / LLM 调用失败）都只写入
 // execCtx 的 Status 与 Reason，不返回错误；仅当上下文被取消（用户中止）时才返回错误，
 // 以便调用方区分「失败的 run」与「被中止的 run」。
 func (l *AgentLoop) Run(ctx context.Context, execCtx *execctx.ExecutionContext, system string) error {
@@ -175,7 +174,7 @@ func (l *AgentLoop) act(ctx context.Context, execCtx *execctx.ExecutionContext, 
 
 // compactIfNeeded 在 run 继续、且本轮以工具调用收尾时，按 context_pct 决定是否压缩。
 // 只有 tool_use 收尾才压缩：此时历史末尾是配对的 tool_result，整体替换为
-// [摘要, 确认] 后对下一次 LLM 调用才是合法输入（与 Python 版条件一致）。
+// [摘要, 确认] 后对下一次 LLM 调用才是合法输入。
 func (l *AgentLoop) compactIfNeeded(ctx context.Context, execCtx *execctx.ExecutionContext, stopReason string, usage llm.UsageStats) {
 	if l.compactor == nil || l.compactThreshold <= 0 || execCtx.IsDone() {
 		return

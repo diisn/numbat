@@ -3,7 +3,7 @@
 > WebUI（React + TypeScript）与 numbat-core 网关之间的**事实契约**。
 > 权威来源为代码；本文基于 2026-09-08 代码状态整理、2026-09-12 随冒烟测试（20/20 通过，含错误路径）复核，若与代码冲突以代码为准：
 > [transport/server.go](../internal/transport/server.go)、[transport/handler.go](../internal/transport/handler.go)、[transport/websocket.go](../internal/transport/websocket.go)、[transport/gateway.go](../internal/transport/gateway.go)、[events/events.go](../internal/events/events.go)、[bus/envelope.go](../internal/bus/envelope.go)、[llm/message.go](../internal/llm/message.go)。
-> 参考客户端实现：[tui/client.go](../internal/tui/client.go)（TCP 版，逻辑可直接平移到 WS）。
+> 参考客户端实现：[tui/client.go](../internal/tui/client.go)（WebSocket 版，与浏览器走同一协议）。
 
 ---
 

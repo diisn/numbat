@@ -14,7 +14,7 @@
    - `max_tokens` 且无 tool_use → 不追加任何内容，继续下一轮让模型补救
 7. `end_turn` / 空 stop_reason → success；否则 `Step >= MaxSteps` → failed（reason=exceeded_max_steps）
 8. `compactIfNeeded`：仅当本轮以 `tool_use` 收尾、run 未结束、且 `context_pct >= 阈值` 时压缩
-   （与 Python 版条件一致；阈值默认 0 = 禁用，见 `config.AutoCompactThreshold`）
+   （阈值默认 0 = 禁用，见 `config.AutoCompactThreshold`）
 
 > 压缩发生在 run 中途，不在会话边界：把历史替换为「摘要 + 确认」两条后，
 > 下一次 LLM 调用拿到的仍是合法输入。阈值 <= 0 表示关闭。

@@ -40,8 +40,9 @@ type RoutingConfig struct {
 // 加载顺序：默认值 -> ~/.numbat/config.toml -> ./.numbat/config.toml -> numbat_* 环境变量 -> .env 文件。
 type Config struct {
 	Host                 string          `toml:"host"`
-	Port                 int             `toml:"port"`
 	GatewayPort          int             `toml:"gateway_port"`
+	RateLimit            float64         `toml:"rate_limit"` // WS 单连接限流：每秒消息数；0 禁用
+	RateBurst            float64         `toml:"rate_burst"` // 限流突发上限
 	LogLevel             string          `toml:"log_level"`
 	AnthropicAPIKey      string          `toml:"anthropic_api_key"`
 	DefaultModel         string          `toml:"default_model"`
@@ -61,11 +62,10 @@ type Config struct {
 }
 
 // Load 加载配置：默认值 → ~/.numbat/config.toml → ./.numbat/config.toml → 环境变量。
-// AutoCompactThreshold 缺省为 0（禁用自动压缩），与 Python 版 compaction.auto_threshold 一致。
+// AutoCompactThreshold 缺省为 0（禁用自动压缩）。
 func Load() (*Config, error) {
 	cfg := &Config{
 		Host:                 "127.0.0.1",
-		Port:                 7437,
 		GatewayPort:          7438,
 		LogLevel:             "INFO",
 		DefaultModel:         "claude-sonnet-4-6",
@@ -105,13 +105,16 @@ func loadFile(path string, cfg *Config) error {
 }
 
 // applyEnv 应用环境配置，优先级：系统环境变量 > .env 文件 > config.toml > 默认值。
-// 同一用途存在多个历史变量名时，按 names 顺序取第一个有值的（Python 版名称排在前）。
+// 同一用途存在多个历史变量名时，按 names 顺序取第一个有值的。
 func applyEnv(cfg *Config, dotEnv map[string]string) {
 	if v := pickEnv(dotEnv, "NUMBAT_HOST"); v != "" {
 		cfg.Host = v
 	}
-	if v := pickEnv(dotEnv, "NUMBAT_PORT"); v != "" {
-		cfg.Port = atoiOr("NUMBAT_PORT", v, cfg.Port)
+	if v := pickEnv(dotEnv, "NUMBAT_RATE_LIMIT"); v != "" {
+		cfg.RateLimit = atofOr("NUMBAT_RATE_LIMIT", v, cfg.RateLimit)
+	}
+	if v := pickEnv(dotEnv, "NUMBAT_RATE_BURST"); v != "" {
+		cfg.RateBurst = atofOr("NUMBAT_RATE_BURST", v, cfg.RateBurst)
 	}
 	if v := pickEnv(dotEnv, "NUMBAT_GATEWAY_PORT"); v != "" {
 		cfg.GatewayPort = atoiOr("NUMBAT_GATEWAY_PORT", v, cfg.GatewayPort)
@@ -163,6 +166,16 @@ func atoiOr(name, value string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+// atofOr 解析浮点数，失败时保留原值并告警。
+func atofOr(name, value string, fallback float64) float64 {
+	f, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		slog.Warn("config: invalid float, using fallback", "env", name, "value", value, "fallback", fallback)
+		return fallback
+	}
+	return f
 }
 
 // readDotEnv 把 .env 读成键值表，供 applyEnv 按统一优先级取值。

@@ -549,7 +549,7 @@ func (m *model) handleCommand(cmd string) (tea.Model, tea.Cmd) {
 		return m, m.compactSessionCmd(m.sessionID)
 	default:
 		// "/name args" 原样发给 core，由 core 端解析并触发对应 skill
-		// （与 Python 版一致：skill 命中时模板渲染结果作为 system prompt，未命中时按普通消息处理）。
+		// （skill 命中时模板渲染结果作为 system prompt，未命中时按普通消息处理）。
 		m.addUserMessage(cmd)
 		// 同 handleInput：/skill 命令同样会触发 run
 		m.awaitingRun = true

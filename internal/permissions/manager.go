@@ -222,7 +222,7 @@ func (m *Manager) applyResponse(decision, sessionID, toolName, sessionKey string
 }
 
 // policyFile 是 policy.toml 的结构：持久化的「总是允许/拒绝」决策放在 [always] 节下，
-// 与 Python 版共用同一个 ~/.numbat/policy.toml。
+// 保存路径为 ~/.numbat/policy.toml。
 type policyFile struct {
 	Always map[string]string `toml:"always"`
 }
@@ -263,7 +263,7 @@ func (m *Manager) loadPolicyFile(path string) error {
 }
 
 // validDecision 判断持久化决策是否合法。手改配置写出的其他值一律忽略，
-// 回退到默认策略（与 Python 版 storage.load_policy_file 的 `v in ("allow","deny")` 一致）。
+// 回退到默认策略（仅接受 "allow" / "deny"）。
 func validDecision(decision string) bool {
 	return decision == "allow" || decision == "deny"
 }

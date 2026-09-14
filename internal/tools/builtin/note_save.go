@@ -25,7 +25,7 @@ type NoteSaveTool struct {
 // Name 返回工具名。
 func (NoteSaveTool) Name() string { return "note_save" }
 
-// Description 返回工具描述（与 Python 版一致：提示笔记在本会话后续轮次可见）。
+// Description 返回工具描述（提示笔记在本会话后续轮次可见）。
 func (NoteSaveTool) Description() string {
 	return "Save a concise fact or decision to this session's notes. " +
 		"These notes are visible in future turns of the same session."
@@ -45,7 +45,7 @@ func (NoteSaveTool) InputSchema() map[string]any {
 	}
 }
 
-// Invoke 执行工具：内容去空白后追加到会话笔记（格式与 Python 版一致），返回 "saved"。
+// Invoke 执行工具：内容去空白后追加到会话笔记，返回 "saved"。
 func (n NoteSaveTool) Invoke(ctx context.Context, params map[string]any) (tools.Result, error) {
 	content, ok := params["content"].(string)
 	if !ok {

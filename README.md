@@ -4,11 +4,11 @@
   <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=dark%20developer%20workspace%20with%20a%20glowing%20AI%20agent%20terminal%2C%20floating%20code%20panels%20with%20syntax%20highlighting%2C%20purple%20and%20blue%20neon%20glow%2C%20futuristic%20command%20center%20dashboard%2C%20cinematic%20lighting%2C%20high%20detail%2C%20professional%20product%20banner&image_size=landscape_16_9" alt="Numbat Banner" width="100%"/>
 </p>
 
-用 **Go 语言**完全实现的开源 AI 编程智能体，核心是一个**类似 Claude Code 的 Agent Loop**（`loop.AgentLoop`），并配有一层**WebSocket 网关**（HTTP/WS :7438，TCP RPC :7437 并行），支持 **TUI / WebUI / IM** 三种交互入口。
+用 **Go 语言**完全实现的开源 AI 编程智能体，核心是一个**类似 Claude Code 的 Agent Loop**（`loop.AgentLoop`），并配有一层**统一 WebSocket 网关**（HTTP/WS :7438），支持 **TUI / WebUI / IM** 三种交互入口。
 
 - 语言 / 运行时：Go 1.26.2（单一二进制，`go:embed` 内嵌前端产物）
 - Agent Loop：类 Claude Code 的「LLM 调用 → 并行工具执行 → 回填结果」迭代循环
-- 网关层：WebSocket 复用与 TCP 完全相同的 JSON-RPC 2.0 协议与事件订阅广播
+- 网关层：TUI 与浏览器经同一 `/ws` 端点复用完全相同的 JSON-RPC 2.0 协议与事件订阅广播
 - LLM 接入：自研 Anthropic Messages API 兼容客户端（SSE 流式），可对接 Anthropic / DeepSeek 等
 - 数据根目录：`~/.numbat/`
 
@@ -18,8 +18,8 @@
 
 - **Go 语言实现**：全部核心以 Go 编写，单一守护进程二进制，`go:embed` 内嵌 WebUI 产物，无运行时依赖。
 - **类 Claude Code 的 Agent Loop**：`loop.AgentLoop` 迭代「LLM 调用 → 并行工具执行 → 回填结果」，直到 `end_turn`，与 Claude Code 的 agentic loop 行为一致。
-- **WebSocket 网关层**：`transport.Gateway`（HTTP/WS :7438）复用与 TCP 完全相同的 JSON-RPC 2.0 dispatch 与事件订阅，浏览器端经 `/ws` 双工通信，无需长轮询。
-- **三种交互入口**：TUI 客户端（TCP）、浏览器 WebUI（HTTP/WS 网关）、外部 IM（Telegram / 飞书，可选）。
+- **统一 WebSocket 网关层**：`transport.Gateway`（HTTP/WS :7438）承载全部对外入口——TUI 与浏览器同经 `/ws` 双工通信（JSON-RPC 2.0），另提供 `/health` `/metrics` 与 `/app/*`（内嵌 WebUI）。
+- **三种交互入口**：TUI 客户端（WS）、浏览器 WebUI（WS + 静态资源）、外部 IM（Telegram / 飞书，可选）。
 - **工具系统**：内建 `read_file` / `list_dir` / `write_file` / `bash`，run 级任务与笔记工具，支持超时、指数退避重试与权限审批。
 - **权限与审批**：`always_allow` / `always_deny` 持久化策略 + 运行时审批弹窗（TUI 中 `y/a/n/d`）。
 - **会话管理**：基于文件的会话存储（`thread.jsonl` + `meta.json` + `notes.md`），支持手动与自动上下文压缩。
@@ -38,10 +38,10 @@
 </p>
 
 ```text
- TUI / 外部脚本                浏览器(WebUI)                     IM 用户(可选)
+ TUI                        浏览器(WebUI)                     IM 用户(可选)
         │                            │                             │
-   TCP :7437                  HTTP/WS 网关 :7438              channel 适配器
-  NDJSON + JSON-RPC         /health /metrics /ws /app       (Telegram/飞书)
+   WebSocket :7438           HTTP/WS 网关 :7438              channel 适配器
+  JSON-RPC 2.0             /health /metrics /ws /app       (Telegram/飞书)
         │                            │                             │
         │                    WebSocket 升级 / 静态资源             │
         ▼                            ▼                             │
@@ -68,8 +68,7 @@
 ```
 
 - **Agent Loop（核心）**：`internal/loop` 实现类 Claude Code 的单会话迭代循环——加载历史 → LLM 流式响应 → 并行执行 `tool_use` → 回填 `tool_result` → 循环至 `end_turn`；run 中途可经 `agent.abort` 取消，上下文按阈值自动压缩。
-- 对外入口一：**TCP :7437**（`Server`），TUI / 脚本通过 NDJSON + JSON-RPC 2.0 通信。
-- 对外入口二：**HTTP/WS 网关 :7438**（`Gateway`），提供 `/health` `/metrics` `/ws` 与 `/app/*`（内嵌 WebUI）；WebSocket 升级复用与 TCP 同一套 `dispatch` 与事件订阅。
+- 对外唯一入口：**HTTP/WS 网关 :7438**（`Gateway`），提供 `/health` `/metrics` `/ws` 与 `/app/*`（内嵌 WebUI）；TUI 与浏览器同经 `/ws` 走 `transport.Server` 的同一套 `dispatch` 与事件订阅，策略（限流/Origin）单点覆盖。
 
 详细的调用链与设计决策见 [CODE_WIKI.md](CODE_WIKI.md)。
 
@@ -105,7 +104,7 @@ go build ./cmd/numbat-core && go build ./cmd/numbat-tui
 go run ./cmd/numbat-core
 
 # 终端 2：TUI 客户端
-go run ./cmd/numbat-tui -addr 127.0.0.1:7437
+go run ./cmd/numbat-tui -addr 127.0.0.1:7438
 ```
 
 快速验证进程存活：`curl http://127.0.0.1:7438/health`。
@@ -157,8 +156,9 @@ cd webui && npm run dev
 | 字段 | TOML 键 | 默认值 | 环境变量 | 说明 |
 |------|---------|--------|---------|------|
 | Host | `host` | `127.0.0.1` | `NUMBAT_HOST` | 监听地址 |
-| Port | `port` | `7437` | `NUMBAT_PORT` | TCP RPC 监听端口 |
-| GatewayPort | `gateway_port` | `7438` | `NUMBAT_GATEWAY_PORT` | HTTP/WebSocket 网关端口 |
+| GatewayPort | `gateway_port` | `7438` | `NUMBAT_GATEWAY_PORT` | HTTP/WebSocket 网关端口（唯一对外入口） |
+| RateLimit | `rate_limit` | `0`（禁用） | `NUMBAT_RATE_LIMIT` | WS 单连接限流：每秒消息数 |
+| RateBurst | `rate_burst` | 与 rate 一致 | `NUMBAT_RATE_BURST` | 限流突发上限 |
 | AnthropicAPIKey | `anthropic_api_key` | — | `ANTHROPIC_API_KEY` / `NUMBAT_ANTHROPIC_API_KEY` | LLM API key |
 | DefaultModel | `default_model` | `claude-sonnet-4-6` | `NUMBAT_DEFAULT_MODEL` | 默认模型 |
 | BaseURL | `base_url` | `https://api.anthropic.com/v1/messages` | `NUMBAT_BASE_URL` | API 端点 |
@@ -202,7 +202,7 @@ numbat/
 │   └── numbat-tui/      # TUI 客户端（bubbletea / lipgloss / glamour）
 ├── internal/
 │   ├── app/             # 组件组装中心
-│   ├── transport/       # RPC Server（TCP/WS）+ HTTP 网关（gin）
+│   ├── transport/       # RPC dispatch 核心 + HTTP/WS 网关（gin）
 │   ├── loop/            # Agent Loop（类 Claude Code）
 │   ├── llm/             # Anthropic Provider（SSE 流式）
 │   ├── tools/           # 工具接口 + 内建工具 + Invoker
@@ -235,7 +235,7 @@ numbat/
 |------|------|
 | [CODE_WIKI.md](CODE_WIKI.md) | 架构总览、调用链、关键设计决策（推荐先读） |
 | [getting-started.md](docs/getting-started.md) | 配置、构建、启动、TUI 操作 |
-| [transport.md](docs/transport.md) | RPC Server（TCP/WebSocket）+ HTTP 网关 |
+| [transport.md](docs/transport.md) | RPC dispatch 核心 + HTTP/WebSocket 网关 |
 | [llm.md](docs/llm.md) | Provider 接口 + AnthropicProvider |
 | [loop.md](docs/loop.md) | Agent Loop 主循环 |
 | [tools.md](docs/tools.md) | 工具接口 + 注册表 + Invoker |

@@ -226,7 +226,7 @@ const MOCK_SUBAGENT_RESULT = `项目架构分析完成：
 
 1. **入口**: cmd/ 目录，标准 Go 项目布局
 2. **核心包**: internal/ 包含 transport、session、llm、events、tools、skills、agents、subagent、compact、memory、loop
-3. **传输层**: WebSocket 网关 (:7438) + TCP JSON-RPC (:7437)
+3. **传输层**: 统一 WebSocket 网关 (:7438)，JSON-RPC 2.0
 4. **事件总线**: topic-based pub/sub + replay
 5. **前端**: webui/ (React + TypeScript + Vite)
 

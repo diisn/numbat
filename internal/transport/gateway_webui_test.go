@@ -63,7 +63,7 @@ func TestGatewayWebUI(t *testing.T) {
 // 未设置前端产物时 /app/* 返回 404，且不影响既有接口。
 func TestGatewayWebUIWithoutAssets(t *testing.T) {
 	g := NewGateway(":0")
-	g.SetRPCServer(NewServer(":0"))
+	g.SetRPCServer(NewServer())
 	server := httptest.NewServer(g.router)
 	defer server.Close()
 

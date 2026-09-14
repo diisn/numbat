@@ -124,7 +124,7 @@ func (m *model) buildContent() (string, []int) {
 }
 
 // renderCtxBar 将上下文占用率渲染为彩色进度条。
-// <70% 灰色、70%-85% 黄色、>=85% 红色，与 Python 版 _render_ctx_bar 一致。
+// <70% 灰色、70%-85% 黄色、>=85% 红色。
 func renderCtxBar(pct float64) string {
 	const width = 20
 	filled := int(pct * width)

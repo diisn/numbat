@@ -7,7 +7,7 @@
 - 发布时复制 handler 切片防并发修改
 - 所有 handler 都会执行，即使某个 handler 返回错误
 - `Publish` 返回第一个非 nil 的错误（如有），但不影响其他 handler 执行
-- 与 Python 版一致：**不做 panic 恢复**，handler panic 会向上冒泡
+- **不做 panic 恢复**，handler panic 会向上冒泡
 
 ## 事件类型（events.go）
 

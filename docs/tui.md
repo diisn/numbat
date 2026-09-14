@@ -89,4 +89,4 @@ const (
 
 ## 优雅关闭
 
-Ctrl+C 时优雅关闭 TCP 连接，不等永久阻塞的 RPC 调用。
+Ctrl+C 时优雅关闭 WebSocket 连接，不等永久阻塞的 RPC 调用。

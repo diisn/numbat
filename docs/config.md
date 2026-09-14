@@ -6,7 +6,7 @@
 默认值 → ~/.numbat/config.toml → ./.numbat/config.toml → .numbat/.env → 系统环境变量
 ```
 
-同一用途存在多个变量名时按「Python 版名称优先」回退，例如 API key 依次尝试
+同一用途存在多个变量名时按 names 顺序取第一个有值的，例如 API key 依次尝试
 `ANTHROPIC_API_KEY`、`NUMBAT_ANTHROPIC_API_KEY`。
 
 ## 配置项
@@ -14,8 +14,9 @@
 | 字段 | TOML 键 | 默认值 | 环境变量 | 说明 |
 |------|---------|--------|---------|------|
 | Host | `host` | `127.0.0.1` | `NUMBAT_HOST` | 监听地址 |
-| Port | `port` | `7437` | `NUMBAT_PORT` | TCP RPC 监听端口 |
-| GatewayPort | `gateway_port` | `7438` | `NUMBAT_GATEWAY_PORT` | HTTP/WebSocket 网关端口 |
+| GatewayPort | `gateway_port` | `7438` | `NUMBAT_GATEWAY_PORT` | HTTP/WebSocket 网关端口（唯一对外入口） |
+| RateLimit | `rate_limit` | `0`（禁用） | `NUMBAT_RATE_LIMIT` | WS 单连接限流：每秒消息数 |
+| RateBurst | `rate_burst` | 与 rate 一致 | `NUMBAT_RATE_BURST` | 限流突发上限 |
 | LogLevel | `log_level` | `INFO` | `NUMBAT_LOG_LEVEL` | slog 日志级别 |
 | AnthropicAPIKey | `anthropic_api_key` | — | `ANTHROPIC_API_KEY` / `NUMBAT_ANTHROPIC_API_KEY` | LLM API key |
 | DefaultModel | `default_model` | `claude-sonnet-4-6` | `NUMBAT_LLM_DEFAULT_MODEL` / `NUMBAT_DEFAULT_MODEL` | 默认模型 |
@@ -53,6 +54,6 @@ default_agent = "executor"    # 优先级最低
 "telegram-main" = "executor"
 ```
 
-`enabled=false` 或缺省空配置时通道不启动，不影响既有 TCP/WebSocket 行为。详见 [channel.md](channel.md)。
+`enabled=false` 或缺省空配置时通道不启动，不影响既有行为。详见 [channel.md](channel.md)。
 
 > 参考 `.numbat/.env.example`：对接 DeepSeek 时设置 `NUMBAT_BASE_URL=https://api.deepseek.com/anthropic`、`NUMBAT_DEFAULT_MODEL=deepseek-chat`。

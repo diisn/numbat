@@ -1,6 +1,6 @@
 # Numbat Code Wiki
 
-> Go 语言重写的 AI 智能体：双进程架构（numbat-core 守护进程 + numbat-tui 交互客户端）+ TCP/NDJSON/JSON-RPC 2.0 + HTTP/WebSocket 网关 + ReAct 循环。
+> Go 语言重写的 AI 智能体：双进程架构（numbat-core 守护进程 + numbat-tui 交互客户端）+ 统一 HTTP/WebSocket 网关（JSON-RPC 2.0）+ ReAct 循环。
 >
 > **阅读建议**：先读本页的架构总览和调用链，再按需点开 [模块文档](#模块索引) 深入。
 
@@ -12,10 +12,10 @@
 |---|---|
 | 语言 | Go 1.26.2 |
 | 进程模型 | 双进程：`numbat-core`（守护进程）+ `numbat-tui`（TUI 客户端） |
-| RPC 协议 | JSON-RPC 2.0，两种传输：TCP + NDJSON（TUI/外部脚本）与 HTTP/WebSocket（WebUI） |
-| 对外入口 | TCP :7437（`Server`）+ HTTP/WS 网关 :7438（`Gateway`，`/health` `/metrics` `/ws` `/app/*`） |
+| RPC 协议 | JSON-RPC 2.0，统一 WebSocket 传输（TUI 与 WebUI 同经 `/ws`） |
+| 对外入口 | HTTP/WS 网关 :7438（`Gateway`，`/health` `/metrics` `/ws` `/app/*`） |
 | IM 接入 | `internal/channel` 可选通道（Telegram/飞书）+ 按发送者路由到 Agent |
-| 事件驱动 | 内存事件总线 + 订阅广播（TCP 与 WebSocket 共用） |
+| 事件驱动 | 内存事件总线 + 订阅广播（WebSocket 连接共用） |
 | LLM 接入 | 自研 Anthropic Messages API 兼容 client（SSE 流式） |
 | 依赖 | bubbletea/bubbles/lipgloss/glamour、gin-gonic/gin、gorilla/websocket、BurntSushi/toml、chroma、slog |
 | WebUI | React + TypeScript + Vite，生产产物经 go:embed 内嵌，挂在网关 `/app/*` |
@@ -25,10 +25,10 @@
 ## 2. 整体架构
 
 ```text
- TUI / 外部脚本                浏览器(WebUI)                     IM 用户(可选)
+ TUI                        浏览器(WebUI)                     IM 用户(可选)
         │                            │                             │
-   TCP :7437                  HTTP/WS 网关 :7438              channel 适配器
-  NDJSON + JSON-RPC         /health /metrics /ws /app       (Telegram/飞书)
+   WebSocket :7438           HTTP/WS 网关 :7438              channel 适配器
+  JSON-RPC 2.0             /health /metrics /ws /app       (Telegram/飞书)
         │                            │                             │
         │                    WebSocket 升级 / 静态资源             │
         ▼                            ▼                             │
@@ -56,11 +56,11 @@
 
 ### 一次完整请求的调用链（TUI 发消息为例）
 
-1. TUI `tui.Client` 发送 `session.send_message` RPC → TCP 7437（或经 WebSocket `/ws` 同样协议）
-2. `transport.Server.handleConn`（WS 为 `handleWSConn`）为每连接分配 goroutine，每请求再分配独立 goroutine（WaitGroup 防泄露）
+1. TUI `tui.Client` 发送 `session.send_message` RPC → WebSocket `/ws`（:7438）
+2. `transport.Server.handleWSConn` 为每连接分配 goroutine，每请求再分配独立 goroutine（WaitGroup 防泄露）
 3. `transport.handler` 处理：读历史 → 自动压缩 → 追加用户消息 → 解析 `/skill` → 构造 run 级工具 → 注册 run cancel → 发布 `RunStarted`
 4. `loop.AgentLoop.Run` 执行 ReAct：`provider.Chat`（SSE 流式）→ 并行 `Invoker`（权限→执行→重试）→ 回填 `tool_result` → 循环到 `end_turn`
-5. 事件经 `events.Bus` 广播：transport 转发给订阅者（TCP/WS），trace 落盘；运行中可经 `agent.abort` 取消
+5. 事件经 `events.Bus` 广播：transport 转发给订阅者（WS），trace 落盘；运行中可经 `agent.abort` 取消
 
 ### IM 通道消息调用链（可选）
 
@@ -74,15 +74,15 @@ IM 消息 → Channel 适配器 `Receive()` → `channel.Manager` 按发送者�
 |---|---|---|
 | 并发工具执行 | loop | 同一轮多个 `tool_use` 用 `sync.WaitGroup` 并行，结果按下标回填 |
 | 请求并发 | transport | 每请求独立 goroutine，`permission.respond` 不被 `agent.run` 阻塞 |
-| per-connection 写锁 | transport | 非订阅连接每连接一把 `sync.Mutex`，防并发写破坏 NDJSON 帧 |
-| connWriter 抽象 | transport | 最小连接接口让 subscriber/事件广播同时服务 TCP 与 WebSocket |
-| WebSocket 复用 dispatch | transport | `/ws` 升级后走同一 `handleRequest`，TCP/WS 一套 RPC 逻辑 |
-| 网关独立端口 | transport/app | TCP :7437 + HTTP/WS :7438 并行；`agent.abort` 按 run 取消 |
+| per-connection 写锁 | transport | `websocketConn` 自带 `writeMu` 串行化并发写 |
+| connWriter 抽象 | transport | 最小连接接口让 subscriber/事件广播与传输载体解耦 |
+| WebSocket 统一入口 | transport | TUI 与浏览器同经 `/ws` 走同一 `handleRequest`，一套 RPC 逻辑 |
+| 网关单入口 | transport/app | HTTP/WS :7438 唯一入口；`agent.abort` 按 run 取消 |
 | per-sender 串行队列 | channel | 同 SenderID 消息单 worker 顺序执行，防会话冲突 |
 | 通道路由优先级 | channel | by_sender > by_channel > default_agent，逐级回退 |
 | 通道默认不启用 | channel/app | `enabled=true` 才启动，缺省空配置不影响既有行为 |
 | session store 文件锁 | session | per-session `sync.Mutex` 保护文件读写，防并发追加交错 |
-| handleConn WaitGroup | transport | 连接退出前 `wg.Wait()` 等所有 in-flight 请求，防 goroutine 泄露 |
+| handleWSConn WaitGroup | transport | 连接退出前 `wg.Wait()` 等所有 in-flight 请求，防 goroutine 泄露 |
 | Bus.Publish 防 panic | events | 单 handler panic 不中断后续 handler，recover 后记录错误继续 |
 | 自动压缩机制 | compact/handler | 两种：**手动** `session.compact`；**自动** run 中途按 `auto_compact_threshold`（context_pct 阈值，缺省 0 禁用）触发，压缩后落盘摘要 |
 | 工具超时与重试 | tools/invoker | `timeout<=0` 不设超时；`runtime_error`/`rate_limited` 指数退避重试 |
@@ -137,7 +137,7 @@ llm ──> （仅标准库，不依赖 events；流式回调由调用方注入�
 | [getting-started.md](docs/getting-started.md) | — | 配置、启动、TUI 操作 |
 | [app.md](docs/app.md) | internal/app | 组件组装中心 |
 | [tui.md](docs/tui.md) | cmd/numbat-tui | TUI 客户端（6 文件结构） |
-| [transport.md](docs/transport.md) | internal/transport | RPC 服务器（TCP/WebSocket）+ HTTP 网关 |
+| [transport.md](docs/transport.md) | internal/transport | RPC dispatch 核心 + HTTP/WS 网关 |
 | [channel.md](docs/channel.md) | internal/channel | 外部 IM 通道接入 + 消息路由 |
 | [bus.md](docs/bus.md) | internal/bus | JSON-RPC Envelope 定义 |
 | [events.md](docs/events.md) | internal/events | 事件总线 + 事件类型 |

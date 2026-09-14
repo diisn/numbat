@@ -22,7 +22,8 @@ type webUI struct {
 	handler http.Handler
 }
 
-// Gateway 是对外暴露的 HTTP + WebSocket 网关。
+// Gateway 是 numbat-core 对外的唯一入口：HTTP 辅助路由（/health /metrics /app/*）
+// 与 WebSocket JSON-RPC（/ws，经 handleWSConn 复用 Server 的 dispatch）。
 type Gateway struct {
 	addr      string
 	server    *http.Server
@@ -34,6 +35,7 @@ type Gateway struct {
 	upgrader  websocket.Upgrader
 	rateLimit float64
 	rateBurst float64
+	runCtx    context.Context // Run 时设置；WS 连接生命周期与之关联
 }
 
 // NewGateway 创建 HTTP 网关。
@@ -187,6 +189,7 @@ func (g *Gateway) handleWebSocket(c *gin.Context) {
 	upgrader := g.upgrader
 	rateLimit := g.rateLimit
 	rateBurst := g.rateBurst
+	runCtx := g.runCtx
 	g.mu.RUnlock()
 	if rpc == nil {
 		c.String(http.StatusServiceUnavailable, "rpc server not configured")
@@ -206,6 +209,16 @@ func (g *Gateway) handleWebSocket(c *gin.Context) {
 	}
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
+	if runCtx != nil {
+		// 关联网关生命周期：请求 ctx 只覆盖客户端断开，core 停止时需主动取消连接。
+		go func() {
+			select {
+			case <-runCtx.Done():
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+	}
 	handleWSConn(ctx, rpc, ws, limiter)
 }
 
@@ -215,14 +228,38 @@ func (g *Gateway) json(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// Run 启动网关并阻塞直到 ctx 取消。
+// Run 启动网关并阻塞直到 ctx 取消或监听失败。
 func (g *Gateway) Run(ctx context.Context) error {
+	g.mu.Lock()
+	g.runCtx = ctx
+	g.mu.Unlock()
+
 	slog.Info("gateway listening", "addr", g.addr)
+
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = g.server.Shutdown(shutdownCtx)
 	}()
-	return g.server.ListenAndServe()
+
+	err := g.server.ListenAndServe()
+	if ctx.Err() == nil {
+		// 非取消导致的退出（如端口占用）：直接返回监听错误。
+		return err
+	}
+	// 优雅关闭：等 Shutdown 完成后，排空 in-flight WS 请求。
+	<-shutdownDone
+	g.mu.RLock()
+	rpc := g.rpc
+	g.mu.RUnlock()
+	if rpc != nil {
+		rpc.waitConns(10 * time.Second)
+	}
+	if err == http.ErrServerClosed {
+		return nil
+	}
+	return err
 }

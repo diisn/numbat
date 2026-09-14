@@ -66,11 +66,11 @@ func (a *App) Run(ctx context.Context) error {
 	// run 级工具（任务/笔记）不进基础注册表，避免跨 run 共享：
 	// - 任务工具：每次 run 由 handler 的 runToolInvoker 绑定 <runsDir>/<runID>/.tasks（per-run 隔离）；
 	// - note_save：仅会话场景由 handler 绑定当前 session 的 Store（写入 notes.md，后续轮次注入）。
-	// 无会话的 agent.run 因此不提供 note_save（与 Python 版一致）。
+	// 无会话的 agent.run 因此不提供 note_save。
 
 	// 子 Agent 任务注册表（后台并行任务 + agent_result 查询），跨 run 共享。
 	// spawn_agent 工具不放进基础注册表：由 handler 的 runToolInvoker 按当前 runID 构造，
-	// 使 subagent.started/finished 携带正确的 parent_run_id（与 Python 版 build_registry 一致）。
+	// 使 subagent.started/finished 携带正确的 parent_run_id。
 	subagentTasks := subagent.NewTaskRegistry()
 	subagentLoader := agents.NewLoader()
 
@@ -99,7 +99,7 @@ func (a *App) Run(ctx context.Context) error {
 		}
 		slog.Info("mcp server connected", "server", s.Name, "tools", len(defs))
 	}
-	// 优雅关闭：在 server.Run 返回后关闭所有 MCP 子进程
+	// 优雅关闭：Run 返回后关闭所有 MCP 子进程
 	defer func() {
 		for _, mc := range mcpClients {
 			_ = mc.Close()
@@ -141,7 +141,7 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 
-	server := transport.NewServer(fmt.Sprintf("%s:%d", a.config.Host, a.config.Port))
+	server := transport.NewServer()
 	server.SetBus(bus)
 	server.SetRunsDir(traceDir)
 	if globalTrace != nil {
@@ -172,6 +172,7 @@ func (a *App) Run(ctx context.Context) error {
 	gin.SetMode(gin.ReleaseMode)
 	gateway := transport.NewGateway(fmt.Sprintf("%s:%d", a.config.Host, a.config.GatewayPort))
 	gateway.SetRPCServer(server)
+	gateway.SetRateLimit(a.config.RateLimit, a.config.RateBurst)
 
 	// 内嵌前端产物挂在 /app/*（见 internal/webui）。
 	// 未执行 npm run build 时产物为空，仅告警不影响其余接口。
@@ -185,15 +186,14 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	// 外部 IM 通道接入（可选）：配置了启用的通道时才启动 channel manager 与 router；
-	// 缺省配置为空，不启动（不影响既有 TCP/WS 行为）。
+	// 缺省配置为空，不启动（不影响既有行为）。
 	if cm := newChannelManager(a.config, subagentLoader); cm != nil {
 		go func() { _ = cm.Start(ctx) }()
 	}
 
-	slog.Info("starting numbat-core", "host", a.config.Host, "port", a.config.Port, "gateway_port", a.config.GatewayPort)
+	slog.Info("starting numbat-core", "gateway_addr", fmt.Sprintf("%s:%d", a.config.Host, a.config.GatewayPort))
 
-	errCh := make(chan error, 2)
-	go func() { errCh <- server.Run(ctx) }()
+	errCh := make(chan error, 1)
 	go func() { errCh <- gateway.Run(ctx) }()
 
 	select {

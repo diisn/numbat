@@ -6,7 +6,7 @@ import (
 	"github.com/youngyangyang04/numbat/internal/llm"
 )
 
-// topicNames 将事件结构体映射为点分 topic 名，命名与 Python 版一致，
+// topicNames 将事件结构体映射为点分 topic 名，
 // 供事件流 type 字段、topic glob 过滤与回放共用。
 var topicNames = map[reflect.Type]string{
 	reflect.TypeOf(RunStarted{}):          "run.started",

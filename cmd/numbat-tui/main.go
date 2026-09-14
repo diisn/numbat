@@ -65,7 +65,7 @@ func renderMarkdown(text string, width int) string {
 }
 
 func main() {
-	addr := flag.String("addr", "127.0.0.1:7437", "numbat-core address (host:port)")
+	addr := flag.String("addr", "127.0.0.1:7438", "numbat-core gateway address (host:port)")
 	flag.Parse()
 
 	logPath := os.Getenv("NUMBAT_TUI_LOG")

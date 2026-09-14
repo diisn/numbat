@@ -41,8 +41,7 @@ type HandlerDeps struct {
 	RunCanceler *runCanceler  // run 级取消注册表，供 agent.abort 使用
 	// CompactThreshold 是 run 中途自动压缩的 context_pct 阈值（0 = 禁用）。
 	CompactThreshold float64
-	// 子 Agent 依赖（跨 run 共享），非 nil 时 runToolInvoker 按当前 runID 注册 spawn_agent/agent_result
-	// （与 Python 版 build_registry 每次 run 构造 parent_run_id=run_id 的 SpawnAgentTool 对齐）。
+	// 子 Agent 依赖（跨 run 共享），非 nil 时 runToolInvoker 按当前 runID 注册 spawn_agent/agent_result。
 	SubagentTasks  *subagent.TaskRegistry
 	SubagentLoader *agents.Loader
 }
@@ -123,7 +122,7 @@ func NewHandlers(deps HandlerDeps) map[string]Handler {
 		execCtx := execctx.NewExecutionContext(runID, p.Goal, deps.MaxSteps)
 		execCtx.AddUserMessage(p.Goal)
 
-		// 无会话的 run 同样注入记忆层（与 Python 版每次 run 都加载 Global/Project 一致）
+		// 无会话的 run 同样注入记忆层。
 		execCtx.GlobalContext, execCtx.ProjectContext = memory.LoadAll()
 		system := execCtx.SystemPrompt(llm.DefaultSystemPrompt)
 
@@ -221,7 +220,7 @@ func NewHandlers(deps HandlerDeps) map[string]Handler {
 		prefillLen := len(msgs)
 
 		// Skill 解析："/name args" 展开为 skill 模板渲染后的目标。
-		// 命中 skill 后（与 Python 版一致）：skill 的系统提示词作为 override，
+		// 命中 skill 后：skill 的系统提示词作为 override，
 		// allowed_tools 作为本次 run 的工具白名单。
 		goal := p.Content
 		var allowedTools []string
@@ -255,9 +254,8 @@ func NewHandlers(deps HandlerDeps) map[string]Handler {
 		agentLoop := newAgentLoop(deps, runInvoker, deps.Session.Store().SessionDir(sess.ID), sess.ID)
 		runErr := runWithCancellation(ctx, deps, execCtx, agentLoop, system)
 
-		// 无论 run 成功、失败还是被中止，都要落库并更新会话状态（与 Python 版一致）。
-		// 落整段新增消息而非只落最终答复，否则下一轮会丢失工具调用上下文
-		// （与 Python 版 append_messages(messages[prefill_len:]) 一致）。
+		// 无论 run 成功、失败还是被中止，都要落库并更新会话状态。
+		// 落整段新增消息而非只落最终答复，否则下一轮会丢失工具调用上下文。
 		var newMessages []llm.Message
 		if !execCtx.Compacted {
 			newMessages = execCtx.Messages[prefillLen:]
@@ -280,7 +278,7 @@ func NewHandlers(deps HandlerDeps) map[string]Handler {
 		if err := deps.Session.Update(sess); err != nil {
 			slog.Warn("session: failed to update status", "session_id", sess.ID, "error", err)
 		}
-		// one_shot 会话到此终止，需要通知订阅者刷新侧栏（与 Python 版一致）。
+		// one_shot 会话到此终止，需要通知订阅者刷新侧栏。
 		if sess.Status == session.StatusClosed {
 			_ = deps.Bus.Publish(ctx, events.SessionClosed{SessionID: sess.ID})
 		}
@@ -386,7 +384,7 @@ func NewHandlers(deps HandlerDeps) map[string]Handler {
 
 // runToolInvoker 为一次 run 构造执行用的 Invoker：
 // - 以基础注册表为模板全量拷贝（工具实例无状态，可安全共享）；
-// - 任务工具重新绑定到 <RunsDir>/<runID>/.tasks（与 Python 版 per-run 任务目录一致）；
+// - 任务工具重新绑定到 <RunsDir>/<runID>/.tasks（per-run 任务目录隔离）；
 // - noteSaver 非 nil 时注册 note_save（会话场景绑定 Store/SessionID/RunID 以落库）；
 // - allowedTools 非空时按白名单过滤（skill 触发场景，空白名单 = 全部放行）。
 // sessionID 会随权限事件下发，也是会话级「总是允许」的缓存键，无会话时传空串。
@@ -401,7 +399,7 @@ func runToolInvoker(deps HandlerDeps, runID, sessionID string, allowedTools []st
 		}
 	}
 	// 子 Agent 工具按当前 runID 重注册（覆盖基础注册表里的占位实例），
-	// 使 subagent.started/finished 携带正确的 parent_run_id（与 Python 版一致）。
+	// 使 subagent.started/finished 携带正确的 parent_run_id。
 	if deps.SubagentTasks != nil {
 		reg.Register(subagent.NewSpawnAgentTool(deps.Provider, deps.Bus, deps.Perm, runID, deps.MaxSteps, deps.ToolTimeout, deps.SubagentTasks, 0,
 			subagent.WithProfileLoader(deps.SubagentLoader), subagent.WithRunsDir(deps.RunsDir), subagent.WithSessionID(sessionID)))
@@ -449,7 +447,7 @@ func runWithCancellation(ctx context.Context, deps HandlerDeps, execCtx *execctx
 }
 
 // splitSkillInvocation 把 "/name args" 拆成 skill 名与参数。
-// 与 Python 版 `content[1:].split(None, 1)` 一致：按任意空白分隔，最多切一刀，
+// 按任意空白分隔，最多切一刀，
 // 参数侧保留内部空白（例如 "/skill   a  b" → skill="skill", args="a  b"）。
 func splitSkillInvocation(content string) (name, args string) {
 	rest := strings.TrimLeft(content[1:], " \t\r\n")

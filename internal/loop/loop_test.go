@@ -141,7 +141,7 @@ func TestRunRecordsFinalAssistant(t *testing.T) {
 	}
 }
 
-// 压缩触发条件：仅当本轮以 tool_use 收尾且 context_pct 达阈值时才压缩（与 Python 版一致）。
+// 压缩触发条件：仅当本轮以 tool_use 收尾且 context_pct 达阈值时才压缩。
 func TestCompactOnlyTriggeredByToolUse(t *testing.T) {
 	cases := []struct {
 		name       string

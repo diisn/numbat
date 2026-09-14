@@ -113,7 +113,7 @@ func (m *model) slashMove(delta int) {
 }
 
 // refreshSlash 在输入内容变化时更新 / 自动补全状态。
-// 仅当输入以 "/" 开头且不含空格时弹出候选列表（与 Python 版 ChatTextArea 语义一致）。
+// 仅当输入以 "/" 开头且不含空格时弹出候选列表。
 func (m *model) refreshSlash() {
 	wasVisible := m.slashVisible
 	wasCount := len(m.slashFiltered)

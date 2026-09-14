@@ -92,7 +92,7 @@ func (r *Registry) ToolDefinitions() []llm.ToolDefinition {
 }
 
 // validateParams 按工具的 input_schema 做轻量校验：只检查 required 字段是否齐备。
-// 目的是在权限审批之前拦掉明显非法的调用（对应 Python 版 pydantic 校验先于权限检查），
+// 目的是在权限审批之前拦掉明显非法的调用，
 // 不引入完整的 JSON Schema 实现——类型与取值范围仍由各工具自行兜底。
 func validateParams(tool Tool, params map[string]any) error {
 	for _, name := range requiredFields(tool.InputSchema()) {

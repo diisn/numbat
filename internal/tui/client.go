@@ -1,44 +1,54 @@
 package tui
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"net"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"github.com/youngyangyang04/numbat/internal/bus"
 )
 
-// Client 是 numbat-core 的 TCP 客户端。
+// Client 是 numbat-core 网关（/ws 端点）的 WebSocket 客户端，
+// 协议与浏览器 WebUI 完全一致：JSON-RPC 2.0 envelope，每条 WS 消息一帧。
 type Client struct {
-	addr      string
-	conn      net.Conn
-	reader    *bufio.Reader
+	url       string
+	conn      *websocket.Conn
 	mu        sync.Mutex
 	events    chan bus.Envelope
 	responses map[int]chan bus.Envelope
 	nextID    int
 }
 
-// NewClient 创建客户端。
+// NewClient 创建客户端；addr 支持 "host:port" 或完整 ws:// URL。
 func NewClient(addr string) *Client {
 	return &Client{
-		addr:      addr,
+		url:       wsURL(addr),
 		events:    make(chan bus.Envelope, 100),
 		responses: make(map[int]chan bus.Envelope),
 	}
 }
 
-// Connect 连接到 numbat-core。
+// wsURL 把 host:port 形式规范化为网关 /ws 端点。
+func wsURL(addr string) string {
+	if strings.Contains(addr, "://") {
+		return addr
+	}
+	return "ws://" + addr + "/ws"
+}
+
+// Connect 连接到 numbat-core 网关。
+// 服务端每 30s 发协议级 ping，gorilla 在读期间自动回 pong，readLoop 常驻即保活。
 func (c *Client) Connect() error {
-	conn, err := net.Dial("tcp", c.addr)
+	conn, _, err := websocket.DefaultDialer.Dial(c.url, nil)
 	if err != nil {
 		return err
 	}
+	conn.SetReadLimit(8 * 1024 * 1024)
 	c.conn = conn
-	c.reader = bufio.NewReader(conn)
 	go c.readLoop()
 	return nil
 }
@@ -87,15 +97,11 @@ func (c *Client) CallWithTimeout(method string, params any, timeout time.Duratio
 	respCh := make(chan bus.Envelope, 1)
 	c.mu.Lock()
 	c.responses[id] = respCh
-	c.mu.Unlock()
-
-	c.mu.Lock()
-	if _, err := c.conn.Write(data); err != nil {
+	if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
 		delete(c.responses, id)
 		c.mu.Unlock()
 		return nil, fmt.Errorf("write failed: %w", err)
 	}
-	_, _ = c.conn.Write([]byte("\n"))
 	c.mu.Unlock()
 
 	select {
@@ -114,7 +120,7 @@ func (c *Client) CallWithTimeout(method string, params any, timeout time.Duratio
 
 func (c *Client) readLoop() {
 	for {
-		line, err := c.reader.ReadBytes('\n')
+		_, line, err := c.conn.ReadMessage()
 		if err != nil {
 			// 连接断开：唤醒所有等待中的 Call，避免永久阻塞
 			c.mu.Lock()
@@ -151,7 +157,7 @@ func (c *Client) readLoop() {
 func toInt(v any) int {
 	switch n := v.(type) {
 	case int:
-		return n
+		return int(n)
 	case int64:
 		return int(n)
 	case float64:
@@ -166,6 +172,9 @@ func toInt(v any) int {
 // Close 关闭连接。
 func (c *Client) Close() error {
 	if c.conn != nil {
+		_ = c.conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+			time.Now().Add(time.Second))
 		return c.conn.Close()
 	}
 	return nil

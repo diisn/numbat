@@ -32,13 +32,12 @@ go build ./cmd/numbat-core && go build ./cmd/numbat-tui
 go run ./cmd/numbat-core
 
 # 终端 2：TUI 客户端
-go run ./cmd/numbat-tui -addr 127.0.0.1:7437
+go run ./cmd/numbat-tui -addr 127.0.0.1:7438
 ```
 
-numbat-core 启动两个对外入口：
+numbat-core 启动一个对外入口：
 
-- **TCP RPC :7437**：TUI / 脚本（NDJSON + JSON-RPC 2.0）。
-- **HTTP/WS 网关 :7438**：`/health` `/metrics` `/ws` 与 `/app/*`（内嵌 WebUI）；WebSocket 复用同一套 RPC 协议与事件订阅。
+- **HTTP/WS 网关 :7438**：`/health` `/metrics` `/ws` 与 `/app/*`（内嵌 WebUI）；TUI 与浏览器同经 `/ws` 走 JSON-RPC 2.0 协议与事件订阅。
 
 可用 `curl http://127.0.0.1:7438/health` 快速验证进程存活。端口经 `config.GatewayPort` / `NUMBAT_GATEWAY_PORT` 调整。
 

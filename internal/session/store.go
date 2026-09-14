@@ -188,7 +188,7 @@ func (s *Store) ReadMessages(sid string) ([]llm.Message, error) {
 }
 
 // trimOrphanToolUse 裁掉尾部未配对的 tool_use 及其后的消息，避免下一次请求被上游以
-// messages.invalid 拒绝（与 Python 版 SessionStore._trim_orphan_tool_use 一致）。
+// messages.invalid 拒绝。
 // 只有被中止的 run 才会留下孤立 tool_use —— 正常完成的 run 会补齐 tool_result。
 func trimOrphanToolUse(messages []llm.Message) []llm.Message {
 	pending := make(map[string]bool)

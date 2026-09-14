@@ -16,7 +16,7 @@ type ExecutionContext struct {
 	Status   string
 	Result   string
 	// Reason 是失败原因（llm_error / cancelled / exceeded_max_steps / panic）。
-	// Status 为 failed 时才有意义；与 Python 版 ExecutionContext.reason 对齐。
+	// Status 为 failed 时才有意义。
 	Reason string
 	// FinalAssistant 是本次 run 最后一条 assistant 消息的 content blocks，供调用方落库。
 	// 中途发生上下文压缩时 Messages 会被整体替换，故单独保留一份。
@@ -25,7 +25,7 @@ type ExecutionContext struct {
 	// 调用方据此只落最终答复，而不是把摘要当成真实对话轮次落库。
 	Compacted bool
 
-	// system prompt 的三个来源（与 Python 版 ExecutionContext 同名）。
+	// system prompt 的三个来源。
 	// SystemPromptOverride 非空时替换角色基础提示词（skill / 子 Agent profile 场景），
 	// 记忆层始终追加在其后。
 	SystemPromptOverride string
@@ -47,7 +47,6 @@ func NewExecutionContext(runID, goal string, maxSteps int) *ExecutionContext {
 
 // SystemPrompt 组合本次 run 的 system prompt：角色基础提示词（或被 override 替换）
 // 在前，记忆层（Global / Project / Session Notes）依次追加在后。
-// 与 Python 版 ExecutionContext.system_prompt 的拼装规则一致。
 func (c *ExecutionContext) SystemPrompt(base string) string {
 	if c.SystemPromptOverride != "" {
 		base = c.SystemPromptOverride

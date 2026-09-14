@@ -6,7 +6,7 @@ import (
 	"github.com/youngyangyang04/numbat/internal/llm"
 )
 
-// trimOrphanToolUse 只裁尾部未配对的 tool_use，配对完整时原样返回（与 Python 版一致）。
+// trimOrphanToolUse 只裁尾部未配对的 tool_use，配对完整时原样返回。
 func TestTrimOrphanToolUse(t *testing.T) {
 	userText := llm.NewTextMessage("user", "hi")
 	assistantText := llm.NewTextMessage("assistant", "done")

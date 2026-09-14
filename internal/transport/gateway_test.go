@@ -16,7 +16,7 @@ import (
 
 func TestGatewayRoutes(t *testing.T) {
 	g := NewGateway(":0")
-	g.SetRPCServer(NewServer(":0"))
+	g.SetRPCServer(NewServer())
 	server := httptest.NewServer(g.router)
 	defer server.Close()
 
@@ -54,7 +54,7 @@ func TestGatewayRoutes(t *testing.T) {
 
 func TestGatewayWebSocket(t *testing.T) {
 	g := NewGateway(":0")
-	rpc := NewServer(":0")
+	rpc := NewServer()
 	rpc.Register("core.ping", func(ctx context.Context, params json.RawMessage) (any, error) {
 		return "pong", nil
 	})
@@ -130,7 +130,7 @@ func TestGatewayRunShutdown(t *testing.T) {
 // newTestGateway 构造带事件总线的测试网关，注册 test.emit 方法用于发布 RunStarted 事件。
 func newTestGateway(t *testing.T) (*events.Bus, *httptest.Server) {
 	g := NewGateway(":0")
-	rpc := NewServer(":0")
+	rpc := NewServer()
 	bus := events.New()
 	rpc.SetBus(bus)
 	rpc.Register("test.emit", func(ctx context.Context, params json.RawMessage) (any, error) {

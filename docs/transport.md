@@ -1,24 +1,21 @@
-# internal/transport — RPC 服务器（TCP/WebSocket）+ HTTP 网关
+# internal/transport — RPC dispatch 核心 + HTTP/WS 网关
 
-`internal/transport` 提供两层对外接口：
+`internal/transport` 提供两层：
 
-- **RPC 服务器（server.go）**：JSON-RPC 2.0 dispatch，可同时承载 TCP + NDJSON 与 WebSocket 两种传输（经 `connWriter` 抽象复用同一套 dispatch/事件订阅逻辑）。
-- **HTTP 网关（gateway.go）**：对外 HTTP 入口（`/health`、`/metrics`、`/ws`），`/app/*` 服务 go:embed 内嵌的 WebUI 产物（SPA fallback，带哈希资源长缓存）。
+- **RPC dispatch 核心（server.go）**：JSON-RPC 2.0 dispatch、事件订阅广播、run 取消。不持有监听器——所有连接由 Gateway 升级为 WebSocket 后经 `handleWSConn` 接入。
+- **HTTP/WS 网关（gateway.go）**：numbat-core 对外的唯一入口（`/health`、`/metrics`、`/ws`），`/app/*` 服务 go:embed 内嵌的 WebUI 产物（SPA fallback，带哈希资源长缓存）。
 
-## TCP 服务器（server.go）
+## dispatch 核心（server.go）
 
 ### 并发模型
-- `Run` 监听 TCP，每连接一个 `handleConn` goroutine
-- 每请求再分配独立 goroutine，响应按 ID 乱序写回
-- **per-connection 写锁**：非订阅连接每连接一把 `sync.Mutex`，防止并发写破坏 NDJSON 帧
+- `handleWSConn` 每连接一个 goroutine，每请求再分配独立 goroutine，响应按 ID 乱序写回
 - **WaitGroup 防 goroutine 泄露**：连接退出前 `wg.Wait()` 等待所有 in-flight 请求完成
-- **优雅关闭**：关闭监听 → 等 in-flight 请求 → 关 MCP 子进程 → 刷 trace
+- **优雅关闭**：`waitConns` 由 Gateway 在 `Shutdown` 后调用，等所有活跃连接退出（最多 10 秒）
 
 ### connWriter 抽象
 `connWriter`（`Write`/`Close`/`SetWriteDeadline`）是事件订阅与 RPC 响应所需的最小连接抽象：
 
-- `net.Conn`（TCP）天然满足；
-- WebSocket 经 `websocketConn` 包装后满足；
+- WebSocket 经 `websocketConn` 包装后满足（自带 `writeMu` 串行化）；
 - 使 `subscriber`、`broadcastEvent`、`handleRequest`、`writeEnvelope` 等与传输载体解耦。
 
 ## HTTP 网关（gateway.go）
@@ -36,10 +33,10 @@
 
 ## WebSocket 传输（websocket.go）
 
-- `handleWSConn`：读取消息 → `handleRequest` dispatch → `writeEnvelope` 响应，与 TCP 完全同构。
+- `handleWSConn`：读取消息 → `handleRequest` dispatch → `writeEnvelope` 响应。
 - **连接保活**：30s 一次 Ping，60s 读超时 + Pong handler 续期。
 - **限流**：读循环入口 `rateLimiter.allow()`，超限发送 Close(1008) 并断开。
-- 复用 TCP 的 `subscriber`/`writeLoop`/`broadcastEvent`：事件订阅、topic/scope 过滤、慢消费者断开在 WebSocket 上同样生效（单条消息 = 单个 TextMessage，天然成帧，无 NDJSON `\n` 拼接）。
+- `subscriber`/`writeLoop`/`broadcastEvent`：事件订阅、topic/scope 过滤、慢消费者断开（单条消息 = 单个 TextMessage，天然成帧）。
 
 ## run 级取消（run_cancel.go）
 
@@ -82,7 +79,7 @@
 
 ## RPC 客户端（tui/client.go）
 
-TUI 使用的 TCP + NDJSON 客户端，`readLoop` goroutine 持续读行：带 ID 的分发到 `responses[id]` channel（唤醒等待的 `Call`）；无 ID 的推入 `events` channel。
+TUI 使用的 WebSocket 客户端，`readLoop` goroutine 持续 `ReadMessage`：带 ID 的分发到 `responses[id]` channel（唤醒等待的 `Call`）；无 ID 的推入 `events` channel。
 
 - `CallWithTimeout`：带超时的 RPC 调用，超时返回错误
 - 连接断开时给所有等待中的 Call 注入错误响应，避免永久阻塞

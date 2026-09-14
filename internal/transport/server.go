@@ -6,9 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"io"
 	"log/slog"
-	"net"
 	"os"
 	"path"
 	"path/filepath"
@@ -26,7 +24,7 @@ import (
 type Handler func(ctx context.Context, params json.RawMessage) (any, error)
 
 // connWriter 是事件订阅与 RPC 响应所需的最小连接抽象。
-// net.Conn 与 WebSocket 连接（经包装后）均满足此接口。
+// WebSocket 连接（经 websocketConn 包装）满足此接口；测试可用 net.Pipe。
 type connWriter interface {
 	Write([]byte) (int, error)
 	Close() error
@@ -47,27 +45,23 @@ type subscriber struct {
 // subscriberBufSize 是事件缓冲上限；慢消费者达到上限会被断开。
 const subscriberBufSize = 256
 
-// Server 是 TCP + NDJSON + JSON-RPC 服务器。
+// Server 是 JSON-RPC dispatch 核心：方法注册、事件订阅广播与 run 取消。
+// 不持有监听器——所有连接由 Gateway 升级为 WebSocket 后经 handleWSConn 接入。
 type Server struct {
-	addr        string
-	listener    net.Listener
 	handlers    map[string]Handler
 	eventBus    *events.Bus
 	subscribers map[connWriter]*subscriber
-	connStates  map[net.Conn]*sync.Mutex // 非订阅连接的写锁，防止并发写破坏 NDJSON 帧
-	runsDir     string                   // run 轨迹根目录，event.subscribe 回放历史事件的来源
+	runsDir     string // run 轨迹根目录，event.subscribe 回放历史事件的来源
 	mu          sync.Mutex
 	globalTrace *trace.GlobalWriter
-	connWg      sync.WaitGroup // 追踪所有活跃连接
+	connWg      sync.WaitGroup // 追踪所有活跃连接，供优雅关闭等待
 }
 
-// NewServer 创建 RPC 服务器。
-func NewServer(addr string) *Server {
+// NewServer 创建 RPC dispatch 核心。
+func NewServer() *Server {
 	return &Server{
-		addr:        addr,
 		handlers:    make(map[string]Handler),
 		subscribers: make(map[connWriter]*subscriber),
-		connStates:  make(map[net.Conn]*sync.Mutex),
 	}
 }
 
@@ -299,18 +293,12 @@ func (sub *subscriber) writeLoop() {
 }
 
 // write 串行写入一条完整消息（事件或 RPC 响应）。
-// WebSocket 以独立消息成帧，无需追加 NDJSON 换行分隔。
+// WebSocket 以独立消息成帧，无换行分隔。
 func (sub *subscriber) write(data []byte) error {
 	sub.writeMu.Lock()
 	defer sub.writeMu.Unlock()
 	_ = sub.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if _, err := sub.conn.Write(data); err != nil {
-		return err
-	}
-	if _, ok := sub.conn.(*websocketConn); ok {
-		return nil
-	}
-	_, err := sub.conn.Write([]byte("\n"))
+	_, err := sub.conn.Write(data)
 	return err
 }
 
@@ -336,108 +324,24 @@ func eventToMap(ev events.Event) (map[string]any, error) {
 	return m, nil
 }
 
-// Addr 返回监听地址。
-func (s *Server) Addr() net.Addr {
-	if s.listener == nil {
-		return nil
-	}
-	return s.listener.Addr()
-}
-
 // Register 注册一个 RPC 方法。
 func (s *Server) Register(method string, h Handler) {
 	s.handlers[method] = h
 }
 
-// Run 启动服务器并阻塞直到 ctx 取消。
-func (s *Server) Run(ctx context.Context) error {
-	ln, err := net.Listen("tcp", s.addr)
-	if err != nil {
-		return err
-	}
-	s.listener = ln
-
-	slog.Info("numbat-core listening", "addr", s.addr)
-
+// waitConns 等待所有活跃连接退出（最多 timeout），
+// 由 Gateway 在优雅关闭阶段调用，排空 in-flight 请求。
+func (s *Server) waitConns(timeout time.Duration) {
+	done := make(chan struct{})
 	go func() {
-		<-ctx.Done()
-		_ = s.listener.Close()
+		s.connWg.Wait()
+		close(done)
 	}()
-
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			if ctx.Err() != nil {
-				// 优雅关闭：等待所有活跃连接完成（最多 10 秒）
-				done := make(chan struct{})
-				go func() {
-					s.connWg.Wait()
-					close(done)
-				}()
-				select {
-				case <-done:
-					slog.Info("graceful shutdown: all connections closed")
-				case <-time.After(10 * time.Second):
-					slog.Warn("graceful shutdown: timeout waiting for connections, forcing close")
-				}
-				return nil
-			}
-			slog.Error("accept failed", "error", err)
-			continue
-		}
-		go s.handleConn(ctx, conn)
-	}
-}
-
-func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
-	s.connWg.Add(1)
-	defer s.connWg.Done()
-
-	// 为非订阅连接注册写锁，防止多 goroutine 并发写破坏 NDJSON 帧
-	writeMu := &sync.Mutex{}
-	s.mu.Lock()
-	s.connStates[conn] = writeMu
-	s.mu.Unlock()
-
-	var wg sync.WaitGroup
-
-	defer func() {
-		// 等待所有 in-flight 请求 goroutine 完成后再关闭连接，
-		// 避免 goroutine 向已关闭连接写入触发 panic 或数据丢失。
-		wg.Wait()
-		s.mu.Lock()
-		delete(s.connStates, conn)
-		s.mu.Unlock()
-		s.removeSubscriber(conn)
-		conn.Close()
-	}()
-
-	reader := bufio.NewReader(conn)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err != io.EOF {
-				slog.Error("read failed", "error", err)
-			}
-			return
-		}
-
-		var req bus.Envelope
-		if err := json.Unmarshal(line, &req); err != nil {
-			s.writeError(conn, nil, -32700, "parse error")
-			continue
-		}
-
-		// 每个请求独立 goroutine 处理，避免长耗时请求（如 agent.run）
-		// 阻塞后续请求（如 permission.respond），响应按 ID 匹配乱序返回。
-		wg.Add(1)
-		go func(req bus.Envelope) {
-			defer wg.Done()
-			resp := s.handleRequest(ctx, &req, conn)
-			if resp != nil {
-				s.writeEnvelope(conn, resp)
-			}
-		}(req)
+	select {
+	case <-done:
+		slog.Info("graceful shutdown: all connections closed")
+	case <-time.After(timeout):
+		slog.Warn("graceful shutdown: timeout waiting for connections, forcing close")
 	}
 }
 
@@ -541,19 +445,6 @@ func (s *Server) writeEnvelope(conn connWriter, env *bus.Envelope) {
 		_ = sub.write(data)
 		return
 	}
-	// 非订阅连接：用 per-connection 写锁保护，防止并发写破坏 NDJSON 帧。
-	// connStates 仅覆盖 TCP 连接；WebSocket 由 websocketConn 自带的写锁串行化。
-	if nc, ok2 := conn.(net.Conn); ok2 {
-		s.mu.Lock()
-		writeMu, ok3 := s.connStates[nc]
-		s.mu.Unlock()
-		if ok3 {
-			writeMu.Lock()
-			defer writeMu.Unlock()
-		}
-		_, _ = nc.Write(data)
-		_, _ = nc.Write([]byte("\n"))
-		return
-	}
+	// 非订阅连接：websocketConn 自带写锁串行化。
 	_, _ = conn.Write(data)
 }
